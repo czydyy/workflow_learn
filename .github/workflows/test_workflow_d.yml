@@ -1,0 +1,49 @@
+name: Test Workflow D
+run-name: "Test D | ${{ inputs.correlation_id || 'manual' }} | ${{ inputs.result_mode }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      wait_seconds:
+        description: "Wait time in seconds (integer, 0..600)"
+        required: true
+        type: number
+        default: 15
+      failure_rate:
+        description: "Failure percentage in random mode (integer, 0..100)"
+        required: true
+        type: number
+        default: 30
+      result_mode:
+        description: "random / always success / always failure / fail first attempt then pass"
+        required: true
+        type: choice
+        options:
+          - random
+          - success
+          - failure
+          - fail_first_attempt
+        default: random
+      correlation_id:
+        description: "Optional test identifier shown in the run title"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out test script
+        uses: actions/checkout@v6
+      - name: Wait and simulate result
+        env:
+          WORKFLOW_LABEL: "D"
+          WAIT_SECONDS: ${{ inputs.wait_seconds }}
+          FAILURE_RATE: ${{ inputs.failure_rate }}
+          RESULT_MODE: ${{ inputs.result_mode }}
+        run: python3 .github/scripts/simulate_workflow.py
