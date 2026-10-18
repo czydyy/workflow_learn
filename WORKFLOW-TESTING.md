@@ -66,3 +66,22 @@ if result["conclusion"] != "success":
 4. random + failure_rate=30：测试不确定结果，重跑可能继续失败。
 
 fail_first_attempt 依赖 GitHub 重跑原运行的 attempt 递增。如果重新 dispatch，属于新的 run，第一次仍会失败。排队和 runner 初始化耗时不包含在 wait_seconds 内，实际运行时间可能更长。GitHub 托管 runner 按账号和仓库的 Actions 配额计费/扣减用量。
+
+## Multi-job fixtures
+
+Each A/B/C/D workflow now runs 9 jobs (including three matrix test jobs):
+
+```text
+prepare -> [lint, build] -> tests(unit, api, regression) -> integration -> package
+      \______________________________________________________________-> summary
+```
+
+- `summary` always runs, shows upstream results, and fails if any required stage failed or was skipped.
+- `fail_first_attempt`: unit/api succeed; regression fails on attempt 1 and succeeds after rerun.
+- `random`: each test suite independently fails according to `failure_rate`; fail-fast is disabled.
+- `success` / `failure`: all test suites succeed / fail deterministically.
+- `wait_seconds` is the wait for EACH parallel test suite, not total workflow time.
+- Rerun failed jobs preserves successful upstream work and resumes dependent jobs. Rerun all repeats everything.
+- Build/package stages are simulations only; no real image build, publishing, or deployment occurs.
+- Runner queue and startup time add to the configured waits. Allow sufficient client timeout.
+- Dispatch numeric test inputs as strings: `"wait_seconds": "60", "failure_rate": "30"`.

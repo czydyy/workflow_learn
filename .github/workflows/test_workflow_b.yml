@@ -33,17 +33,119 @@ on:
 permissions:
   contents: read
 
+
+
+
 jobs:
-  simulate:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
-      - name: Check out test script
-        uses: actions/checkout@v6
-      - name: Wait and simulate result
+      - uses: actions/checkout@v6
+      - name: Validate input and test fixture
         env:
-          WORKFLOW_LABEL: "B"
           WAIT_SECONDS: ${{ inputs.wait_seconds }}
           FAILURE_RATE: ${{ inputs.failure_rate }}
           RESULT_MODE: ${{ inputs.result_mode }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          seconds = int(os.environ['WAIT_SECONDS'])
+          rate = int(os.environ['FAILURE_RATE'])
+          assert 0 <= seconds <= 600, 'wait_seconds must be 0..600'
+          assert 0 <= rate <= 100, 'failure_rate must be 0..100'
+          assert os.environ['RESULT_MODE'] in {'random', 'success', 'failure', 'fail_first_attempt'}
+          assert Path('.github/scripts/simulate_workflow.py').is_file()
+          print('Inputs and fixture validated', flush=True)
+          PY
+
+  lint:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check Python syntax
+        run: python3 -m py_compile .github/scripts/simulate_workflow.py
+      - name: Simulate static checks
+        run: sleep 5
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create simulated build manifest
+        run: |
+          mkdir -p dist
+          printf 'commit=%s\nrun=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/build.txt
+          cat dist/build.txt
+          sleep 10
+
+  tests:
+    name: Test (${{ matrix.suite }})
+    needs: [lint, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, api, regression]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Wait and simulate test result
+        env:
+          WORKFLOW_B: "B / ${{ matrix.suite }}"
+          WAIT_SECONDS: ${{ inputs.wait_seconds }}
+          FAILURE_RATE: ${{ inputs.failure_rate }}
+          # Only regression fails deterministically on the first attempt.
+          # Random mode applies independently to all three suites.
+          RESULT_MODE: ${{ inputs.result_mode == 'fail_first_attempt' && matrix.suite != 'regression' && 'success' || inputs.result_mode }}
         run: python3 .github/scripts/simulate_workflow.py
+
+  integration:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Simulate integration verification
+        run: |
+          echo "All test suites succeeded; checking integration"
+          sleep 10
+
+  package:
+    needs: integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Simulate packaging
+        run: |
+          echo "Integration passed; simulating package creation (no publishing)"
+          sleep 5
+
+  summary:
+    if: ${{ always() }}
+    needs: [prepare, lint, build, tests, integration, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarize and enforce final result
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          results = json.loads(os.environ['JOB_RESULTS'])
+          rows = ['## Workflow B result', '', '| Stage | Result |', '| --- | --- |']
+          rows += [f"| {name} | {job['result']} |" for name, job in results.items()]
+          report = '\n'.join(rows) + '\n'
+          print(report, flush=True)
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as stream:
+              stream.write(report)
+          # Never turn failed/skipped upstream jobs into a successful workflow.
+          raise SystemExit(0 if all(job['result'] == 'success' for job in results.values()) else 1)
+          PY
