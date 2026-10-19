@@ -69,14 +69,12 @@ fail_first_attempt 依赖 GitHub 重跑原运行的 attempt 递增。如果重�
 
 ## Multi-job fixtures
 
-Each A/B/C/D workflow now runs 9 jobs (including three matrix test jobs):
+Each A/B/C/D workflow now runs 8 jobs (including three matrix test jobs):
 
 ```text
 prepare -> [lint, build] -> tests(unit, api, regression) -> integration -> package
-      \______________________________________________________________-> summary
 ```
 
-- `summary` always runs, shows upstream results, and fails if any required stage failed or was skipped.
 - `fail_first_attempt`: unit/api succeed; regression fails on attempt 1 and succeeds after rerun.
 - `random`: each test suite independently fails according to `failure_rate`; fail-fast is disabled.
 - `success` / `failure`: all test suites succeed / fail deterministically.

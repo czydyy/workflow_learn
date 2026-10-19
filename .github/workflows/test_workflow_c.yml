@@ -124,28 +124,3 @@ jobs:
         run: |
           echo "Integration passed; simulating package creation (no publishing)"
           sleep 5
-
-  summary:
-    if: ${{ always() }}
-    needs: [prepare, lint, build, tests, integration, package]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Summarize and enforce final result
-        env:
-          JOB_RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          results = json.loads(os.environ['JOB_RESULTS'])
-          rows = ['## Workflow C result', '', '| Stage | Result |', '| --- | --- |']
-          rows += [f"| {name} | {job['result']} |" for name, job in results.items()]
-          report = '\n'.join(rows) + '\n'
-          print(report, flush=True)
-          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as stream:
-              stream.write(report)
-          # Never turn failed/skipped upstream jobs into a successful workflow.
-          raise SystemExit(0 if all(job['result'] == 'success' for job in results.values()) else 1)
-          PY
